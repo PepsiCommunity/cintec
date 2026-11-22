@@ -1,0 +1,147 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add "$TARGET"
+
+      - name: Read version and validate release tag
+        id: version
+        run: |
+          version=$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Release tag must be v$version to match Cargo.toml" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config clang libclang-dev \
+            libasound2-dev libfontconfig1-dev libfreetype6-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libx11-dev libx11-xcb-dev libxcursor-dev libxi-dev \
+            libxrandr-dev libxcb1-dev libvulkan1 libgl1-mesa-dev \
+            libssl-dev dbus mpv ffmpeg
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake pkgconf llvm mpv ffmpeg
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+          # Newer Xcode versions distribute the Metal compiler separately.
+          if ! xcrun --sdk macosx --find metal >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+
+      - name: Build
+        run: cargo build --locked --release --target "$TARGET"
+
+      - name: Test
+        run: |
+          cargo test --locked --release --target "$TARGET"
+          cargo test --locked --release --target "$TARGET" metadata::tests::real_flac_opus_mp3_and_untagged_wav_are_probed -- --ignored
+          "target/$TARGET/release/cintec" --help
+
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          archive="cintec-$VERSION-$TARGET"
+          stage="$RUNNER_TEMP/$archive"
+          mkdir -p "$stage" dist
+          install -m755 "target/$TARGET/release/cintec" "$stage/cintec"
+          cp README.md config.example.toml "$stage/"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            cp cintec.desktop "$stage/"
+          fi
+          tar -czf "dist/$archive.tar.gz" -C "$RUNNER_TEMP" "$archive"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: cintec-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: cintec-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > SHA256SUMS
+
+      - name: Publish archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/*.tar.gz dist/SHA256SUMS --clobber
+          else
+            options=(--verify-tag --generate-notes --title "Cîntec $RELEASE_TAG")
+            if [[ "$RELEASE_TAG" == *-* ]]; then
+              options+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "${options[@]}" dist/*.tar.gz dist/SHA256SUMS
+          fi

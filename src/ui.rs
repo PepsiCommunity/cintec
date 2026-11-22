@@ -290,7 +290,7 @@ impl Player {
         self.playing = playing;
         self.pending_seek = Some(position);
         self.send(json!(["set_property", "pause", !playing]));
-        self.notice = "Playing · Space pauses".into();
+        self.notice = "Playing · Keymaps help on F1".into();
     }
     fn stop(&mut self) {
         self.recovery = None;
@@ -1037,16 +1037,20 @@ impl Player {
             .border_color(rgb(LINE))
             .child(
                 div()
+                    .flex()
+                    .justify_between()
                     .px_4()
                     .py_3()
                     .border_b_1()
                     .border_color(rgb(LINE))
-                    .text_color(rgb(if self.library_focus { ACCENT } else { MUTED }))
-                    .child("LIBRARY")
+                    .child(
+                        div()
+                            .text_color(rgb(if self.library_focus { ACCENT } else { MUTED }))
+                            .child("LIBRARY"),
+                    )
                     .child(
                         div()
                             .text_size(px(self.config.font_size * 12. / 14.))
-                            .mt_1()
                             .text_color(rgb(MUTED))
                             .child(self.config.library.display().to_string()),
                     ),

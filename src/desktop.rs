@@ -278,149 +278,155 @@ impl Desktop {
         }));
         let (tx, events) = channel();
         let (seeked, seeks) = channel();
-        let shared = state.clone();
-        let mpris_tx = tx.clone();
-        thread::spawn(move || {
-            let result = (|| -> anyhow::Result<()> {
-                let conn = Builder::session()?
-                    .name("org.mpris.MediaPlayer2.cintec")?
-                    .serve_at(
-                        "/org/mpris/MediaPlayer2",
-                        Root {
-                            tx: mpris_tx.clone(),
-                        },
-                    )?
-                    .serve_at(
-                        "/org/mpris/MediaPlayer2",
-                        Player {
-                            tx: mpris_tx.clone(),
-                            state: shared.clone(),
-                        },
-                    )?
-                    .build()?;
-                let mut previous = Snapshot::default();
-                loop {
-                    thread::sleep(Duration::from_millis(250));
-                    let s = shared.lock().unwrap().clone();
-                    // Position advances silently, as required by MPRIS. Seeked is emitted separately.
-                    let mut changed = HashMap::<String, OwnedValue>::new();
-                    if s.status != previous.status {
-                        changed
-                            .insert("PlaybackStatus".into(), Str::from(s.status.as_str()).into());
-                    }
-                    if s.track_id != previous.track_id
-                        || s.title != previous.title
-                        || s.artist != previous.artist
-                        || s.album != previous.album
-                        || s.art != previous.art
-                        || s.duration != previous.duration
-                    {
-                        changed.insert(
-                            "Metadata".into(),
-                            OwnedValue::try_from(zbus::zvariant::Value::from(metadata(&s)))?,
-                        );
-                    }
-                    if s.volume != previous.volume {
-                        changed.insert("Volume".into(), (s.volume / 100.).into());
-                    }
-                    if s.repeat != previous.repeat {
-                        changed.insert("LoopStatus".into(), Str::from(s.repeat.as_str()).into());
-                    }
-                    if s.can_next != previous.can_next {
-                        changed.insert("CanGoNext".into(), s.can_next.into());
-                    }
-                    if s.can_previous != previous.can_previous {
-                        changed.insert("CanGoPrevious".into(), s.can_previous.into());
-                    }
-                    if s.track_id != previous.track_id
-                        || s.duration != previous.duration
-                        || s.status != previous.status
-                    {
-                        changed.insert("CanPlay".into(), (!s.track_id.is_empty()).into());
-                        changed.insert("CanPause".into(), (s.status != "Stopped").into());
-                        changed.insert(
-                            "CanSeek".into(),
-                            (s.duration > 0. && s.status != "Stopped").into(),
-                        );
-                    }
-                    if !changed.is_empty() {
-                        conn.emit_signal(
-                            None::<&str>,
+        // MPRIS and logind are Linux integrations, not native macOS services.
+        if cfg!(target_os = "linux") {
+            let shared = state.clone();
+            let mpris_tx = tx.clone();
+            thread::spawn(move || {
+                let result = (|| -> anyhow::Result<()> {
+                    let conn = Builder::session()?
+                        .name("org.mpris.MediaPlayer2.cintec")?
+                        .serve_at(
                             "/org/mpris/MediaPlayer2",
-                            "org.freedesktop.DBus.Properties",
-                            "PropertiesChanged",
-                            &(
+                            Root {
+                                tx: mpris_tx.clone(),
+                            },
+                        )?
+                        .serve_at(
+                            "/org/mpris/MediaPlayer2",
+                            Player {
+                                tx: mpris_tx.clone(),
+                                state: shared.clone(),
+                            },
+                        )?
+                        .build()?;
+                    let mut previous = Snapshot::default();
+                    loop {
+                        thread::sleep(Duration::from_millis(250));
+                        let s = shared.lock().unwrap().clone();
+                        // Position advances silently, as required by MPRIS. Seeked is emitted separately.
+                        let mut changed = HashMap::<String, OwnedValue>::new();
+                        if s.status != previous.status {
+                            changed.insert(
+                                "PlaybackStatus".into(),
+                                Str::from(s.status.as_str()).into(),
+                            );
+                        }
+                        if s.track_id != previous.track_id
+                            || s.title != previous.title
+                            || s.artist != previous.artist
+                            || s.album != previous.album
+                            || s.art != previous.art
+                            || s.duration != previous.duration
+                        {
+                            changed.insert(
+                                "Metadata".into(),
+                                OwnedValue::try_from(zbus::zvariant::Value::from(metadata(&s)))?,
+                            );
+                        }
+                        if s.volume != previous.volume {
+                            changed.insert("Volume".into(), (s.volume / 100.).into());
+                        }
+                        if s.repeat != previous.repeat {
+                            changed
+                                .insert("LoopStatus".into(), Str::from(s.repeat.as_str()).into());
+                        }
+                        if s.can_next != previous.can_next {
+                            changed.insert("CanGoNext".into(), s.can_next.into());
+                        }
+                        if s.can_previous != previous.can_previous {
+                            changed.insert("CanGoPrevious".into(), s.can_previous.into());
+                        }
+                        if s.track_id != previous.track_id
+                            || s.duration != previous.duration
+                            || s.status != previous.status
+                        {
+                            changed.insert("CanPlay".into(), (!s.track_id.is_empty()).into());
+                            changed.insert("CanPause".into(), (s.status != "Stopped").into());
+                            changed.insert(
+                                "CanSeek".into(),
+                                (s.duration > 0. && s.status != "Stopped").into(),
+                            );
+                        }
+                        if !changed.is_empty() {
+                            conn.emit_signal(
+                                None::<&str>,
+                                "/org/mpris/MediaPlayer2",
+                                "org.freedesktop.DBus.Properties",
+                                "PropertiesChanged",
+                                &(
+                                    "org.mpris.MediaPlayer2.Player",
+                                    changed,
+                                    Vec::<String>::new(),
+                                ),
+                            )?;
+                        }
+                        for position in seeks.try_iter() {
+                            conn.emit_signal(
+                                None::<&str>,
+                                "/org/mpris/MediaPlayer2",
                                 "org.mpris.MediaPlayer2.Player",
-                                changed,
-                                Vec::<String>::new(),
+                                "Seeked",
+                                &(position,),
+                            )?;
+                        }
+                        previous = s;
+                    }
+                })();
+                if let Err(e) = result {
+                    let _ = mpris_tx.send(Remote::Warning(format!("MPRIS unavailable: {e}")));
+                }
+            });
+            thread::spawn(move || {
+                let result = (|| -> anyhow::Result<()> {
+                    let conn = Connection::system()?;
+                    let proxy = Proxy::new(
+                        &conn,
+                        "org.freedesktop.login1",
+                        "/org/freedesktop/login1",
+                        "org.freedesktop.login1.Manager",
+                    )?;
+                    let inhibit = || -> zbus::Result<zbus::zvariant::OwnedFd> {
+                        proxy.call(
+                            "Inhibit",
+                            &(
+                                "sleep",
+                                "Cintec",
+                                "Save playback and close the audio device",
+                                "delay",
                             ),
-                        )?;
-                    }
-                    for position in seeks.try_iter() {
-                        conn.emit_signal(
-                            None::<&str>,
-                            "/org/mpris/MediaPlayer2",
-                            "org.mpris.MediaPlayer2.Player",
-                            "Seeked",
-                            &(position,),
-                        )?;
-                    }
-                    previous = s;
-                }
-            })();
-            if let Err(e) = result {
-                let _ = mpris_tx.send(Remote::Warning(format!("MPRIS unavailable: {e}")));
-            }
-        });
-        thread::spawn(move || {
-            let result = (|| -> anyhow::Result<()> {
-                let conn = Connection::system()?;
-                let proxy = Proxy::new(
-                    &conn,
-                    "org.freedesktop.login1",
-                    "/org/freedesktop/login1",
-                    "org.freedesktop.login1.Manager",
-                )?;
-                let inhibit = || -> zbus::Result<zbus::zvariant::OwnedFd> {
-                    proxy.call(
-                        "Inhibit",
-                        &(
-                            "sleep",
-                            "Cintec",
-                            "Save playback and close the audio device",
-                            "delay",
-                        ),
-                    )
-                };
-                let mut signals = proxy.receive_signal("PrepareForSleep")?;
-                let mut inhibitor = inhibit().ok();
-                for message in &mut signals {
-                    let (sleeping,): (bool,) = message.body().deserialize()?;
-                    if sleeping {
-                        let (ack, done) = channel();
-                        if tx.send(Remote::Sleep(true, Some(ack))).is_err() {
-                            break;
+                        )
+                    };
+                    let mut signals = proxy.receive_signal("PrepareForSleep")?;
+                    let mut inhibitor = inhibit().ok();
+                    for message in &mut signals {
+                        let (sleeping,): (bool,) = message.body().deserialize()?;
+                        if sleeping {
+                            let (ack, done) = channel();
+                            if tx.send(Remote::Sleep(true, Some(ack))).is_err() {
+                                break;
+                            }
+                            let _ = done.recv_timeout(Duration::from_secs(2));
+                            inhibitor.take();
+                        } else {
+                            // Give PipeWire/PulseAudio and Bluetooth endpoints time to reappear.
+                            thread::sleep(Duration::from_secs(1));
+                            if tx.send(Remote::Sleep(false, None)).is_err() {
+                                break;
+                            }
+                            inhibitor = inhibit().ok();
                         }
-                        let _ = done.recv_timeout(Duration::from_secs(2));
-                        inhibitor.take();
-                    } else {
-                        // Give PipeWire/PulseAudio and Bluetooth endpoints time to reappear.
-                        thread::sleep(Duration::from_secs(1));
-                        if tx.send(Remote::Sleep(false, None)).is_err() {
-                            break;
-                        }
-                        inhibitor = inhibit().ok();
                     }
+                    drop(inhibitor);
+                    Ok(())
+                })();
+                if let Err(e) = result {
+                    let _ = tx.send(Remote::Warning(format!(
+                        "Suspend monitoring unavailable: {e}; use Ctrl-Alt-R to recover audio"
+                    )));
                 }
-                drop(inhibitor);
-                Ok(())
-            })();
-            if let Err(e) = result {
-                let _ = tx.send(Remote::Warning(format!(
-                    "Suspend monitoring unavailable: {e}; use Ctrl-Alt-R to recover audio"
-                )));
-            }
-        });
+            });
+        }
         Self {
             state,
             events,
