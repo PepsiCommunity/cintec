@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Cintec
+Comment=Keyboard-first directory music player
+Exec=cintec
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=cintec

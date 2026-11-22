@@ -1,0 +1,22 @@
+# Copy to ~/.config/cintec/config.toml. Use an absolute directory path.
+library = "/home/your-user/Music"
+library_width = 300.0
+volume = 70.0
+mpv = "mpv"
+ffmpeg = "ffmpeg"
+ffprobe = "ffprobe"
+# Any installed font family, e.g. "Inter", "Noto Sans", "Iosevka".
+font_family = "sans-serif"
+# Logical pixels; Ctrl +/- changes this live, Ctrl-0 resets to 14.
+font_size = 14.0
+
+# An entry replaces all default keys for that command; [] disables it.
+# Every command appears in the in-app F1 help. Avoid assigning the same key
+# to multiple commands. Restart after changing this file.
+[keys]
+# enqueue = ["a", "ctrl-enter"]
+# narrow = ["ctrl-left"]
+# widen = ["ctrl-right"]
+
+# visual = ["v", "shift-v"]
+# clear = ["shift-d", "ctrl-shift-backspace"]

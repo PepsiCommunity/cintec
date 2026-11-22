@@ -1,0 +1,32 @@
+[package]
+name = "cintec"
+version = "0.1.0"
+edition = "2024"
+description = "A keyboard-first directory music player"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+anyhow = "1"
+gpui = { version = "=0.2.2", default-features = false, features = ["wayland", "x11"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+toml = "0.9"
+directories = "6"
+tempfile = "3"
+url = "2"
+zbus = { version = "5", features = ["blocking-api"] }
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+lto = "thin"
+
+# GPUI's zed-async-tar dependency still requires xattr 0.2.3. Keep its API
+# while fixing the removed libc::ENOATTR alias on Linux/Android.
+[patch.crates-io]
+xattr = { path = "vendor/xattr" }
+
+[dev-dependencies]
+xattr = "=0.2.3"
