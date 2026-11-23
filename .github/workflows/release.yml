@@ -102,10 +102,45 @@ jobs:
           fi
           tar -czf "dist/$archive.tar.gz" -C "$RUNNER_TEMP" "$archive"
 
+      - name: Install nFPM
+        if: runner.os == 'Linux'
+        env:
+          NFPM_VERSION: '2.49.0'
+        run: |
+          case "$(uname -m)" in
+            x86_64) tool_arch=x86_64 ;;
+            aarch64) tool_arch=arm64 ;;
+            *) echo "Unsupported nFPM host architecture" >&2; exit 1 ;;
+          esac
+          archive="nfpm_${NFPM_VERSION}_Linux_${tool_arch}.tar.gz"
+          tool_dir="$RUNNER_TEMP/nfpm"
+          mkdir -p "$tool_dir"
+          base_url="https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION"
+          curl --fail --location --retry 3 "$base_url/$archive" -o "$tool_dir/$archive"
+          curl --fail --location --retry 3 "$base_url/checksums.txt" -o "$tool_dir/checksums.txt"
+          (cd "$tool_dir" && sha256sum --ignore-missing --check checksums.txt)
+          tar -xzf "$tool_dir/$archive" -C "$tool_dir" nfpm
+          echo "$tool_dir" >> "$GITHUB_PATH"
+
+      - name: Create Linux packages from the compiled binary
+        if: runner.os == 'Linux'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          case "$TARGET" in
+            x86_64-unknown-linux-gnu) export PACKAGE_ARCH=amd64 ;;
+            aarch64-unknown-linux-gnu) export PACKAGE_ARCH=arm64 ;;
+            *) echo "Unsupported Linux package target: $TARGET" >&2; exit 1 ;;
+          esac
+          install -Dm755 "target/$TARGET/release/cintec" target/linux-package/cintec
+          for format in deb rpm archlinux; do
+            nfpm package --config packaging/nfpm.yaml --packager "$format" --target dist/
+          done
+
       - uses: actions/upload-artifact@v6
         with:
           name: cintec-${{ matrix.target }}
-          path: dist/*.tar.gz
+          path: dist/*
           if-no-files-found: error
           compression-level: 0
 
@@ -125,9 +160,9 @@ jobs:
 
       - name: Create checksums
         working-directory: dist
-        run: sha256sum *.tar.gz > SHA256SUMS
+        run: sha256sum *.tar.gz *.deb *.rpm *.pkg.tar.zst > SHA256SUMS
 
-      - name: Publish archives
+      - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -135,11 +170,11 @@ jobs:
         shell: bash
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" dist/*.tar.gz dist/SHA256SUMS --clobber
+            gh release upload "$RELEASE_TAG" dist/* --clobber
           else
             options=(--verify-tag --generate-notes --title "Cîntec $RELEASE_TAG")
             if [[ "$RELEASE_TAG" == *-* ]]; then
               options+=(--prerelease)
             fi
-            gh release create "$RELEASE_TAG" "${options[@]}" dist/*.tar.gz dist/SHA256SUMS
+            gh release create "$RELEASE_TAG" "${options[@]}" dist/*
           fi

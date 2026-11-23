@@ -85,16 +85,18 @@ install -m644 cintec.desktop "$HOME/.local/share/applications/cintec.desktop"
 
 ## GitHub releases
 
-The [release workflow](.github/workflows/release.yml) builds native archives for Linux x86-64/ARM64 and macOS Intel/Apple Silicon. Push a version tag matching `Cargo.toml` to create a GitHub release:
+The [release workflow](.github/workflows/release.yml) builds native archives for Linux x86-64/ARM64 and macOS Apple Silicon. Each Linux job compiles once, then uses [nFPM](https://nfpm.goreleaser.com/) to package that same executable as a Debian/Ubuntu `.deb`, Fedora `.rpm`, and Arch `.pkg.tar.zst` (Arch Linux ARM for ARM64). Package contents and distribution-specific runtime dependencies are defined in [packaging/nfpm.yaml](packaging/nfpm.yaml). Push a version tag matching `Cargo.toml` to create a GitHub release:
 
 ```sh
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Update the manifest and lockfile before tagging a new version. All four builds and their tests must pass before publication. Tags with a prerelease suffix, such as `v0.2.0-rc.1`, create prereleases. Re-running a tag workflow replaces its assets. Running the workflow manually on a branch produces downloadable Actions artifacts without publishing a release. Publication uses the built-in `GITHUB_TOKEN`; no personal access token is needed.
+Update the manifest and lockfile before tagging a new version. All builds, tests, and packaging steps must pass before publication. Tags with a prerelease suffix, such as `v0.2.0-rc.1`, create prereleases. Re-running a tag workflow replaces its assets. Running the workflow manually on a branch produces downloadable Actions artifacts without publishing a release. Publication uses the built-in `GITHUB_TOKEN`; no personal access token is needed.
 
-Each release includes `.tar.gz` archives and `SHA256SUMS`. Extract the archive for your OS and architecture and install its `cintec` binary as above, using the extracted path instead of `target/release/cintec`. Archives include this README and the configuration example, plus the desktop entry on Linux. Install mpv, FFmpeg, and the platform runtime libraries separately using the dependency instructions above. Linux archives are built on Ubuntu 22.04 and require glibc 2.35 or newer with compatible system libraries; use a source build or the Nix package on other systems. macOS archives are unsigned terminal executables, not notarized app bundles.
+Each release includes the native Linux packages, `.tar.gz` archives, and `SHA256SUMS` covering every asset. Install the package for your distribution and architecture with `sudo apt install ./cintec_*.deb`, `sudo dnf install ./cintec-*.rpm`, or `sudo pacman -U ./cintec-*.pkg.tar.zst`, using the single downloaded file. The packages install `/usr/bin/cintec`, a desktop entry, and documentation; your package manager resolves the declared runtime dependencies. A compatible Vulkan driver must also be installed for your GPU.
+
+For an archive installation, extract the archive for your OS and architecture and install its `cintec` binary as above, using the extracted path instead of `target/release/cintec`. Archives include this README and the configuration example, plus the desktop entry on Linux. Install mpv, FFmpeg, and the platform runtime libraries separately using the dependency instructions above. Linux builds use Ubuntu 22.04 and require glibc 2.35 or newer with compatible system libraries; use a source build or the Nix package on other systems. macOS archives are unsigned terminal executables, not notarized app bundles.
 
 ## Install as a Nix flake package
 

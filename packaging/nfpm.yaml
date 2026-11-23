@@ -1,0 +1,87 @@
+# All formats consume the same binary produced by the Linux build job.
+name: cintec
+arch: ${PACKAGE_ARCH}
+platform: linux
+version: ${VERSION}
+release: 1
+maintainer: ${GITHUB_REPOSITORY_OWNER}
+homepage: https://github.com/${GITHUB_REPOSITORY}
+description: A keyboard-first Rust + GPUI directory music player
+license: GPL-3.0-or-later
+section: sound
+priority: optional
+
+contents:
+  - src: target/linux-package/cintec
+    dst: /usr/bin/cintec
+    file_info:
+      mode: 0755
+  - src: cintec.desktop
+    dst: /usr/share/applications/cintec.desktop
+  - src: README.md
+    dst: /usr/share/doc/cintec/README.md
+  - src: config.example.toml
+    dst: /usr/share/doc/cintec/config.example.toml
+
+# RPM dependencies target Fedora; Arch ARM packages target Arch Linux ARM.
+# These cover linked libraries and GPUI's dynamically loaded platform libraries.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+      - libfreetype6
+      - libxcb1
+      - libxkbcommon0
+      - libxkbcommon-x11-0
+      - libvulkan1
+      - libwayland-client0
+      - libwayland-cursor0
+      - libwayland-egl1
+      - libfontconfig1
+      - libx11-6
+      - libxcursor1
+      - libxi6
+      - libxrandr2
+      - libgl1
+      - dbus
+      - mpv
+      - ffmpeg
+  rpm:
+    depends:
+      - glibc >= 2.35
+      - libgcc
+      - freetype
+      - libxcb
+      - libxkbcommon
+      - libxkbcommon-x11
+      - vulkan-loader
+      - wayland-libs
+      - fontconfig
+      - libX11
+      - libXcursor
+      - libXi
+      - libXrandr
+      - libglvnd-glx
+      - dbus
+      - mpv
+      - ffmpeg-free
+  archlinux:
+    depends:
+      - glibc>=2.35
+      - gcc-libs
+      - freetype2
+      - libxcb
+      - libxkbcommon
+      - libxkbcommon-x11
+      - vulkan-icd-loader
+      - wayland
+      - fontconfig
+      - libx11
+      - libxcursor
+      - libxi
+      - libxrandr
+      - libglvnd
+      - dbus
+      - mpv
+      - ffmpeg
